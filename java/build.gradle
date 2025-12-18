@@ -1,0 +1,115 @@
+plugins {
+    id 'java-library'
+    id 'idea'
+    id 'eclipse'
+    id 'java'
+    id 'signing'
+    id "com.vanniktech.maven.publish" version "0.30.0"
+}
+
+sourceCompatibility = JavaVersion.VERSION_11
+targetCompatibility = JavaVersion.VERSION_11
+group = GROUP
+version = VERSION_NAME
+
+repositories {
+    mavenCentral()
+}
+
+sourceSets {
+    main.java.srcDirs = ['src/main/java']
+    test.java.srcDirs = ['src/test/java']
+    test.resources.srcDirs = ['src/test/resources']
+}
+
+dependencies {
+    // JSON serialization
+    implementation "com.fasterxml.jackson.core:jackson-core:2.18.2"
+    implementation "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.18.2"
+    implementation "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.2"
+    implementation "com.fasterxml.jackson.core:jackson-annotations:2.18.2"
+    implementation "com.fasterxml.jackson.core:jackson-databind:2.18.2"
+
+    // HTTP client
+    implementation "com.squareup.okhttp3:okhttp:4.12.0"
+
+    // Annotations
+    implementation "com.google.code.findbugs:jsr305:3.0.2"
+
+    // Webhook signature verification (standard-webhooks)
+    implementation "com.standardwebhooks:standardwebhooks:1.1.0"
+
+    // Testing
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation "org.assertj:assertj-core:3.24.2"
+    testImplementation "com.github.tomakehurst:wiremock-jre8:2.35.1"
+
+    // Lombok
+    compileOnly 'org.projectlombok:lombok:1.18.36'
+    annotationProcessor 'org.projectlombok:lombok:1.18.36'
+
+    testCompileOnly 'org.projectlombok:lombok:1.18.36'
+    testAnnotationProcessor 'org.projectlombok:lombok:1.18.36'
+}
+
+jar {
+    archiveBaseName = POM_ARTIFACT_ID
+    manifest {
+        attributes('Implementation-Title': POM_NAME,
+                   'Implementation-Version': VERSION_NAME,
+                   'Implementation-Vendor': VENDOR_NAME,
+                   'Bundle-SymbolicName': POM_ARTIFACT_ID,
+                   'Export-Package': 'com.afinsp,com.afinsp.models,com.afinsp.api,com.afinsp.exceptions')
+
+        archiveVersion = VERSION_NAME
+    }
+}
+
+// Maven Central publishing configuration
+import com.vanniktech.maven.publish.SonatypeHost
+import com.vanniktech.maven.publish.JavaLibrary
+import com.vanniktech.maven.publish.JavadocJar
+
+mavenPublishing {
+    configure(new JavaLibrary(new JavadocJar.Javadoc(), true))
+
+    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
+
+    signAllPublications()
+
+    pom {
+        name = POM_NAME
+        description = POM_DESCRIPTION
+        url = POM_URL
+
+        licenses {
+            license {
+                name = POM_LICENCE_NAME
+                url = POM_LICENCE_URL
+                distribution = POM_LICENCE_DIST
+            }
+        }
+        developers {
+            developer {
+                id = POM_DEVELOPER_ID
+                name = POM_DEVELOPER_NAME
+                email = POM_DEVELOPER_EMAIL
+            }
+        }
+        scm {
+            connection = POM_SCM_CONNECTION
+            developerConnection = POM_SCM_DEV_CONNECTION
+            url = POM_SCM_URL
+        }
+        organization {
+            name = POM_DEVELOPER_NAME
+            url = POM_ORGANIZATION_URL
+        }
+    }
+}
+
+test {
+    testLogging {
+        events "passed", "skipped", "failed"
+    }
+}
