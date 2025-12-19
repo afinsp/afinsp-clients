@@ -1,0 +1,207 @@
+use std::{io, process::Command};
+
+use anyhow::bail;
+use camino::{Utf8Path, Utf8PathBuf};
+use serde::Serialize;
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CodegenLanguage {
+    Python,
+    Rust,
+    Go,
+    Kotlin,
+    CSharp,
+    Java,
+    TypeScript,
+    Ruby,
+    Php,
+    Shell,
+    Unknown,
+}
+
+impl CodegenLanguage {
+    pub fn ext(self) -> &'static str {
+        match self {
+            CodegenLanguage::Python => "py",
+            CodegenLanguage::Rust => "rs",
+            CodegenLanguage::Go => "go",
+            CodegenLanguage::Kotlin => "kt",
+            CodegenLanguage::CSharp => "cs",
+            CodegenLanguage::Java => "java",
+            CodegenLanguage::TypeScript => "ts",
+            CodegenLanguage::Ruby => "rb",
+            CodegenLanguage::Php => "php",
+            CodegenLanguage::Shell => "sh",
+            CodegenLanguage::Unknown => "txt",
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct Postprocessor<'a> {
+    files_to_process: &'a [Utf8PathBuf],
+    postprocessor_lang: CodegenLanguage,
+    output_dir: Utf8PathBuf,
+}
+
+impl<'a> Postprocessor<'a> {
+    fn new(
+        postprocessor_lang: CodegenLanguage,
+        output_dir: Utf8PathBuf,
+        files_to_process: &'a [Utf8PathBuf],
+    ) -> Self {
+        Self {
+            files_to_process,
+            postprocessor_lang,
+            output_dir,
+        }
+    }
+    pub(crate) fn from_ext(
+        ext: &str,
+        output_dir: &Utf8Path,
+        files_to_process: &'a [Utf8PathBuf],
+    ) -> Self {
+        let lang = match ext {
+            "py" => CodegenLanguage::Python,
+            "rs" => CodegenLanguage::Rust,
+            "go" => CodegenLanguage::Go,
+            "kt" => CodegenLanguage::Kotlin,
+            "cs" => CodegenLanguage::CSharp,
+            "java" => CodegenLanguage::Java,
+            "ts" => CodegenLanguage::TypeScript,
+            "rb" => CodegenLanguage::Ruby,
+            "php" => CodegenLanguage::Php,
+            "sh" => CodegenLanguage::Shell,
+            _ => {
+                tracing::warn!("no known postprocessing command(s) for {ext} files");
+                CodegenLanguage::Unknown
+            }
+        };
+        Self::new(lang, output_dir.to_path_buf(), files_to_process)
+    }
+
+    pub(crate) fn run_postprocessor(&self) -> anyhow::Result<()> {
+        match self.postprocessor_lang {
+            // pass each file to postprocessor at once
+            CodegenLanguage::Java | CodegenLanguage::Rust => {
+                let commands = self.postprocessor_lang.postprocessing_commands();
+                for (command, args) in commands {
+                    execute_command(command, args, self.files_to_process)?;
+                }
+            }
+            // pass output dir to postprocessor
+            CodegenLanguage::Ruby
+            | CodegenLanguage::Php
+            | CodegenLanguage::Python
+            | CodegenLanguage::Go
+            | CodegenLanguage::Kotlin
+            | CodegenLanguage::CSharp
+            | CodegenLanguage::TypeScript => {
+                let commands = self.postprocessor_lang.postprocessing_commands();
+                for (command, args) in commands {
+                    execute_command(command, args, std::slice::from_ref(&self.output_dir))?;
+                }
+            }
+            CodegenLanguage::Unknown | CodegenLanguage::Shell => (),
+        }
+        Ok(())
+    }
+}
+
+impl CodegenLanguage {
+    fn postprocessing_commands(&self) -> &[(&'static str, &[&str])] {
+        match self {
+            Self::Unknown | Self::Shell => &[],
+            // https://github.com/astral-sh/ruff
+            Self::Python => &[
+                ("ruff", &["check", "--no-respect-gitignore", "--fix"]), // First lint and remove unused imports
+                (
+                    "ruff", // Then sort imports
+                    &["check", "--no-respect-gitignore", "--select", "I", "--fix"],
+                ),
+                ("ruff", &["format", "--no-respect-gitignore"]), // Then format the file
+            ],
+            Self::Rust => &[(
+                "rustfmt",
+                &[
+                    "+nightly-2025-02-27",
+                    "--unstable-features",
+                    "--skip-children",
+                    "--edition",
+                    "2021",
+                ],
+            )],
+            // https://pkg.go.dev/golang.org/x/tools/cmd/goimports
+            Self::Go => &[("goimports", &["-w"]), ("gofmt", &["-w"])],
+            // https://github.com/facebook/ktfmt
+            Self::Kotlin => &[("ktfmt", &["--kotlinlang-style"])],
+            // https://github.com/belav/csharpier
+            Self::CSharp => &[(
+                "csharpier",
+                &[
+                    "format",
+                    "--no-cache",
+                    "--skip-validation",
+                    "--no-msbuild-check",
+                ],
+            )],
+            // https://github.com/google/google-java-format
+            Self::Java => &[("google-java-format", &["-i", "-a"])],
+            // https://github.com/biomejs/biome
+            Self::TypeScript => &[
+                (
+                    "biome",
+                    &[
+                        "lint",
+                        "--only=organizeImports",
+                        "--only=noUnusedImports",
+                        "--only=useImportType",
+                        "--unsafe",
+                        "--write",
+                    ],
+                ),
+                (
+                    "biome",
+                    &[
+                        "format",
+                        "--trailing-commas=es5",
+                        "--indent-style=space",
+                        "--line-width=90",
+                        "--write",
+                    ],
+                ),
+            ],
+            // https://github.com/fables-tales/rubyfmt
+            Self::Ruby => &[("rubyfmt", &["-i", "--include-gitignored", "--fail-fast"])],
+            Self::Php => &[(
+                // https://github.com/PHP-CS-Fixer/PHP-CS-Fixer
+                "php84",
+                &[
+                    "/usr/share/php-cs-fixer.phar",
+                    "--no-ansi",
+                    "fix",
+                    "--using-cache=no",
+                    "--rules=no_unused_imports,@Symfony",
+                ],
+            )],
+        }
+    }
+}
+
+fn execute_command(
+    command: &'static str,
+    args: &[&str],
+    paths: &[Utf8PathBuf],
+) -> anyhow::Result<()> {
+    let result = Command::new(command).args(args).args(paths).status();
+    match result {
+        Ok(exit_status) if exit_status.success() => Ok(()),
+        Ok(exit_status) => {
+            bail!("`{command}` failed with exit code {:?}", exit_status.code());
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            bail!("`{command}` not found - run with --no-postprocess to skip");
+        }
+        Err(e) => Err(e.into()),
+    }
+}
