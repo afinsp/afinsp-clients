@@ -1,0 +1,74 @@
+{% set _ = set_summary_filename("Afinsp.java") -%}
+// this file is @generated
+package com.afinsp;
+
+import com.afinsp.api.*;
+
+import lombok.Getter;
+
+import okhttp3.HttpUrl;
+
+import java.util.Map;
+
+/**
+ * Main entry point for the Afinsp Java SDK.
+ *
+ * <p>This class provides access to all Afinsp API resources through a fluent interface.
+ *
+ * <p>Example usage:
+ * <pre>{@code
+ * // Initialize with API key
+ * Afinsp afinsp = new Afinsp("your-api-key");
+ *
+ * // Or with custom options
+ * AfinspOptions options = new AfinspOptions();
+ * options.setServerUrl("https://custom.api.afinsp.com");
+ * Afinsp afinsp = new Afinsp("your-api-key", options);
+ *
+ * // Access API resources
+ * CustomerListResponse customers = afinsp.getCustomer().listCustomers();
+ * }</pre>
+ */
+@Getter
+public class Afinsp {
+{% for resource in api.resources %}
+    private final {{ resource.name | to_upper_camel_case }} {{ resource.name | to_lower_camel_case }};
+{% endfor %}
+
+    /**
+     * Create a new Afinsp client with default options.
+     *
+     * @param apiKey Your Afinsp API key
+     */
+    public Afinsp(String apiKey) {
+        this(apiKey, new AfinspOptions());
+    }
+
+    /**
+     * Create a new Afinsp client with custom options.
+     *
+     * @param apiKey Your Afinsp API key
+     * @param options Configuration options for the client
+     */
+    public Afinsp(String apiKey, AfinspOptions options) {
+        HttpUrl parsedUrl = HttpUrl.parse(options.getServerUrl());
+        if (parsedUrl == null) {
+            throw new IllegalArgumentException("Invalid server URL: " + options.getServerUrl());
+        }
+
+        Map<String, String> defaultHeaders = Map.of(
+                "User-Agent", "afinsp-java/" + Version.VERSION,
+                "Authorization", "Bearer " + apiKey
+        );
+
+        AfinspHttpClient httpClient = new AfinspHttpClient(
+                parsedUrl,
+                defaultHeaders,
+                options.getRetrySchedule()
+        );
+
+{% for resource in api.resources %}
+        this.{{ resource.name | to_lower_camel_case }} = new {{ resource.name | to_upper_camel_case }}(httpClient);
+{% endfor %}
+    }
+}
