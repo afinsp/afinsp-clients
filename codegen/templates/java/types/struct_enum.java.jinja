@@ -1,0 +1,228 @@
+{% set type_name = type.name | to_upper_camel_case -%}
+{% set discriminator_field_name = type.discriminator_field | to_lower_camel_case -%}
+// This file is @generated
+package com.afinsp.models;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import com.fasterxml.jackson.annotation.JsonTypeName;
+import com.fasterxml.jackson.annotation.JsonUnwrapped;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.afinsp.Utils;
+import lombok.*;
+
+import java.util.Map;
+import java.util.Set;
+import java.util.List;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.ArrayList;
+import java.math.BigDecimal;
+import java.time.OffsetDateTime;
+import java.net.URI;
+
+{% if type.description is defined -%}
+/**
+ * {{ type.description }}
+ */
+{% endif -%}
+{% if type.repr == "internally_tagged" -%}
+@JsonTypeInfo(
+    use = JsonTypeInfo.Id.NAME,
+    include = JsonTypeInfo.As.EXISTING_PROPERTY,
+    property = "{{ type.discriminator_field }}",
+    visible = true
+)
+@JsonSubTypes({
+    {% for variant in type.variants -%}
+    @JsonSubTypes.Type(value = {{ type_name }}.{{ variant.name | to_upper_camel_case }}.class, name = "{{ variant.name }}"){% if not loop.last %},{% endif %}
+
+    {% endfor -%}
+})
+{% elif type.repr == "adjacently_tagged" -%}
+@JsonTypeInfo(
+    use = JsonTypeInfo.Id.NAME,
+    include = JsonTypeInfo.As.PROPERTY,
+    property = "{{ type.discriminator_field }}"
+)
+@JsonSubTypes({
+    {% for variant in type.variants -%}
+    @JsonSubTypes.Type(value = {{ type_name }}.{{ variant.name | to_upper_camel_case }}.class, name = "{{ variant.name }}"){% if not loop.last %},{% endif %}
+
+    {% endfor -%}
+})
+{% endif -%}
+@ToString
+@EqualsAndHashCode
+public abstract class {{ type_name }} {
+    {% for field in type.fields -%}
+    {% set field_ty = field.type.to_java() -%}
+    {% if field.name != field.name | to_lower_camel_case -%}
+    @JsonProperty("{{ field.name }}")
+    {% else -%}
+    @JsonProperty
+    {% endif -%}
+    protected {{ field_ty }} {{ field.name | to_lower_camel_case }};
+    {% endfor -%}
+
+    {% for field in type.fields -%}
+    {% set field_ty = field.type.to_java() -%}
+    {% set f_varname = field.name | to_lower_camel_case -%}
+    {% if field.description is defined -%}
+    /**
+     * {{ field.description }}
+     */
+    {% endif -%}
+    {% if field.nullable or not field.required -%}
+    @javax.annotation.Nullable
+    {% else -%}
+    @javax.annotation.Nonnull
+    {% endif -%}
+    public {{ field_ty }} get{{ field.name | to_upper_camel_case }}() {
+        return {{ f_varname }};
+    }
+    {% endfor -%}
+
+    /**
+     * Get the discriminator value identifying this variant.
+     */
+    public abstract String get{{ type.discriminator_field | to_upper_camel_case }}();
+
+    /**
+     * Convert an instance of {{ type_name }} to a JSON string.
+     *
+     * @return JSON string
+     */
+    public String toJson() throws JsonProcessingException {
+        return Utils.getObjectMapper().writeValueAsString(this);
+    }
+
+    /**
+     * Create an instance of {{ type_name }} from a JSON string.
+     *
+     * @param jsonString JSON string
+     * @return An instance of {{ type_name }}
+     * @throws JsonProcessingException if the JSON string is invalid
+     */
+    public static {{ type_name }} fromJson(String jsonString) throws JsonProcessingException {
+        return Utils.getObjectMapper().readValue(jsonString, {{ type_name }}.class);
+    }
+
+    // Variant classes
+    {% for variant in type.variants -%}
+    {% set variant_class_name = variant.name | to_upper_camel_case -%}
+    {% if variant.type == "ref" and variant.schema_ref is defined -%}
+    /**
+     * Variant: {{ variant.name }}
+     *
+     * This variant wraps {{ variant.schema_ref | to_upper_camel_case }}.
+     */
+    @ToString(callSuper = true)
+    @EqualsAndHashCode(callSuper = true)
+    @JsonTypeName("{{ variant.name }}")
+    public static class {{ variant_class_name }} extends {{ type_name }} {
+        @JsonUnwrapped
+        private {{ variant.schema_ref | to_upper_camel_case }} data;
+
+        public {{ variant_class_name }}() {
+        }
+
+        public {{ variant_class_name }}({{ variant.schema_ref | to_upper_camel_case }} data) {
+            this.data = data;
+        }
+
+        @java.lang.Override
+        public String get{{ type.discriminator_field | to_upper_camel_case }}() {
+            return "{{ variant.name }}";
+        }
+
+        /**
+         * Get the wrapped data for this variant.
+         */
+        @javax.annotation.Nonnull
+        public {{ variant.schema_ref | to_upper_camel_case }} getData() {
+            return data;
+        }
+
+        /**
+         * Set the wrapped data for this variant.
+         */
+        public {{ variant_class_name }} data({{ variant.schema_ref | to_upper_camel_case }} data) {
+            this.data = data;
+            return this;
+        }
+    }
+    {% elif variant.type == "struct" and variant.fields is defined and variant.fields | length > 0 -%}
+    /**
+     * Variant: {{ variant.name }}
+     *
+     * Inline struct variant with its own fields.
+     */
+    @ToString(callSuper = true)
+    @EqualsAndHashCode(callSuper = true)
+    @JsonTypeName("{{ variant.name }}")
+    public static class {{ variant_class_name }} extends {{ type_name }} {
+        {% for field in variant.fields -%}
+        {% set f_ty = field.type.to_java() -%}
+        {% if field.name != field.name | to_lower_camel_case -%}
+        @JsonProperty("{{ field.name }}")
+        {% else -%}
+        @JsonProperty
+        {% endif -%}
+        private {{ f_ty }} {{ field.name | to_lower_camel_case }};
+        {% endfor -%}
+
+        public {{ variant_class_name }}() {
+        }
+
+        @java.lang.Override
+        public String get{{ type.discriminator_field | to_upper_camel_case }}() {
+            return "{{ variant.name }}";
+        }
+
+        {% for field in variant.fields -%}
+        {% set f_ty = field.type.to_java() -%}
+        {% set f_varname = field.name | to_lower_camel_case -%}
+        {% if field.description is defined -%}
+        /**
+         * {{ field.description }}
+         */
+        {% endif -%}
+        {% if field.nullable or not field.required -%}
+        @javax.annotation.Nullable
+        {% else -%}
+        @javax.annotation.Nonnull
+        {% endif -%}
+        public {{ f_ty }} get{{ field.name | to_upper_camel_case }}() {
+            return {{ f_varname }};
+        }
+
+        public {{ variant_class_name }} {{ f_varname }}({{ f_ty }} {{ f_varname }}) {
+            this.{{ f_varname }} = {{ f_varname }};
+            return this;
+        }
+
+        public void set{{ field.name | to_upper_camel_case }}({{ f_ty }} {{ f_varname }}) {
+            this.{{ f_varname }} = {{ f_varname }};
+        }
+        {% endfor -%}
+    }
+    {% else -%}
+    /**
+     * Variant: {{ variant.name }}
+     *
+     * Unit variant with no additional data.
+     */
+    @ToString(callSuper = true)
+    @EqualsAndHashCode(callSuper = true)
+    @JsonTypeName("{{ variant.name }}")
+    public static class {{ variant_class_name }} extends {{ type_name }} {
+        @java.lang.Override
+        public String get{{ type.discriminator_field | to_upper_camel_case }}() {
+            return "{{ variant.name }}";
+        }
+    }
+    {% endif -%}
+    {% endfor -%}
+}
