@@ -1,0 +1,117 @@
+{% from "types/macros.rs.jinja" import field_name -%}
+use serde::{Deserialize, Serialize};
+
+use super::{
+    {% for c in referenced_components -%}
+        {{ c | to_snake_case }}::{{ c | to_upper_camel_case }},
+    {% endfor -%}
+};
+
+{% set type_name = type.name | to_upper_camel_case -%}
+{% if type.fields | length > 0 -%}
+    {% set enum_type_name %}{{ type_name }}Content{% endset -%}
+
+    {{ doc_comment }}
+    #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+    pub struct {{ type_name }} {
+        {% for field in type.fields %}
+            {% if field.description is defined -%}
+                {{ field.description | to_doc_comment(style="rust") }}
+            {% endif -%}
+
+            {% if field.deprecated -%}
+                #[deprecated]
+            {% endif -%}
+
+            {% if field.flatten -%}
+                #[serde(flatten)]
+            {% elif field.name != field.name | to_snake_case -%}
+                #[serde(rename = "{{ field.name }}")]
+            {% endif -%}
+
+            {% set field_ty = field.type.to_rust() -%}
+            {% if not field.required or field.nullable -%}
+                {% set field_ty %}Option<{{ field_ty }}>{% endset -%}
+                #[serde(skip_serializing_if = "Option::is_none")]
+            {% endif -%}
+
+            pub {{ field_name(field.name | to_snake_case) }}: {{ field_ty }},
+        {% endfor %}
+
+        #[serde(flatten)]
+        pub content: {{ enum_type_name }},
+    }
+{% else -%}
+    {% set enum_type_name = type_name %}
+{% endif %}
+
+{% if type.repr == "internally_tagged" -%}
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(tag = "{{ type.discriminator_field }}")]
+pub enum {{ enum_type_name }} {
+    {% for variant in type.variants -%}
+        #[serde(rename = "{{ variant.name }}")]
+        {% if variant.type == "ref" and variant.schema_ref is defined -%}
+            {{ variant.name | to_upper_camel_case }}({{ variant.schema_ref | to_upper_camel_case }}),
+        {% elif variant.type == "struct" and variant.fields is defined and variant.fields | length > 0 -%}
+            {{ variant.name | to_upper_camel_case }} {
+                {% for field in variant.fields -%}
+                    {% if field.name != field.name | to_snake_case -%}
+                        #[serde(rename = "{{ field.name }}")]
+                    {% endif -%}
+                    {% set field_ty = field.type.to_rust() -%}
+                    {% if not field.required or field.nullable -%}
+                        {% set field_ty %}Option<{{ field_ty }}>{% endset -%}
+                    {% endif -%}
+                    {{ field_name(field.name | to_snake_case) }}: {{ field_ty }},
+                {% endfor -%}
+            },
+        {% else -%}
+            {{ variant.name | to_upper_camel_case }},
+        {% endif -%}
+    {% endfor -%}
+}
+{% elif type.repr == "adjacently_tagged" -%}
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(tag = "{{ type.discriminator_field }}", content = "{{ type.content_field }}")]
+pub enum {{ enum_type_name }} {
+    {% for variant in type.variants -%}
+        #[serde(rename = "{{ variant.name }}")]
+        {% if variant.type == "ref" and variant.schema_ref is defined -%}
+            {{ variant.name | to_upper_camel_case }}({{ variant.schema_ref | to_upper_camel_case }}),
+        {% elif variant.type == "struct" and variant.fields is defined and variant.fields | length > 0 -%}
+            {{ variant.name | to_upper_camel_case }} {
+                {% for field in variant.fields -%}
+                    {% if field.name != field.name | to_snake_case -%}
+                        #[serde(rename = "{{ field.name }}")]
+                    {% endif -%}
+                    {% set field_ty = field.type.to_rust() -%}
+                    {% if not field.required or field.nullable -%}
+                        {% set field_ty %}Option<{{ field_ty }}>{% endset -%}
+                    {% endif -%}
+                    {{ field_name(field.name | to_snake_case) }}: {{ field_ty }},
+                {% endfor -%}
+            },
+        {% else -%}
+            {{ variant.name | to_upper_camel_case }},
+        {% endif -%}
+    {% endfor -%}
+}
+{% endif %}
+
+{% set first_variant = type.variants[0] -%}
+impl Default for {{ enum_type_name }} {
+    fn default() -> Self {
+        {% if first_variant.type == "ref" and first_variant.schema_ref is defined -%}
+            Self::{{ first_variant.name | to_upper_camel_case }}({{ first_variant.schema_ref | to_upper_camel_case }}::default())
+        {% elif first_variant.type == "struct" and first_variant.fields is defined and first_variant.fields | length > 0 -%}
+            Self::{{ first_variant.name | to_upper_camel_case }} {
+                {% for field in first_variant.fields -%}
+                    {{ field_name(field.name | to_snake_case) }}: Default::default(),
+                {% endfor -%}
+            }
+        {% else -%}
+            Self::{{ first_variant.name | to_upper_camel_case }}
+        {% endif -%}
+    }
+}
