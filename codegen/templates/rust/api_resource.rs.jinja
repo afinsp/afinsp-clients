@@ -1,0 +1,145 @@
+{#
+    This example template is a simplified version of the one originally from
+    https://github.com/svix/openapi-codegen
+
+    It currently depends on the (non-generated) `crate::error::Result`,
+    `crate::Configuration` and `crate::request::Request`
+
+    A PR to make it more generic (e.g. use reqwest directly) would be welcome
+-#}
+// this file is @generated
+{% set resource_type_name = resource.name | to_upper_camel_case -%}
+
+#[allow(unused_imports)]
+use crate::{error::Result, models::*, Configuration};
+
+{% for op in resource.operations -%}
+    {% if op | has_query_or_header_params %}
+    #[derive(Default)]
+    pub struct {{ resource_type_name }}{{ op.name | to_upper_camel_case }}Options {
+        {% for p in op.query_params -%}
+            {% set ty = p.type.to_rust() -%}
+            {% if not p.required %}{% set ty %}Option<{{ ty }}>{% endset %}{% endif %}
+            {% if p.description is defined -%}
+                {{ p.description | to_doc_comment(style="rust") }}
+            {% endif -%}
+            pub {{ p.name | to_rust_ident }}: {{ ty }},
+        {% endfor -%}
+        {% for p in op.header_params -%}
+            {% set ty = "String" -%}
+            {% if not p.required %}{% set ty %}Option<{{ ty }}>{% endset %}{% endif %}
+            {% if p.description is defined -%}
+                {{ p.description | to_doc_comment(style="rust") }}
+            {% endif -%}
+            pub {{ p.name | to_rust_ident }}: {{ ty }},
+        {% endfor -%}
+    }
+    {% endif %}
+{% endfor -%}
+
+pub struct {{ resource_type_name }}<'a> {
+    cfg: &'a Configuration,
+}
+
+impl<'a> {{ resource_type_name }}<'a> {
+    pub(super) fn new(cfg: &'a Configuration) -> Self {
+        Self { cfg }
+    }
+
+    {% for op in resource.operations %}
+    {% set has_params = op | has_query_or_header_params -%}
+    {% if op.description is defined -%}
+        {{ op.description | to_doc_comment(style="rust") }}
+    {% endif -%}
+    {% if op.deprecated -%}
+        #[deprecated]
+    {% endif -%}
+    pub async fn {{ op.name | to_snake_case }}(
+        &self,
+
+        {#- path parameters -#}
+        {% for p in op.path_params -%}
+            {{ p }}: String,
+        {% endfor -%}
+
+        {# body parameter struct -#}
+        {% if op.request_body_schema_name is defined -%}
+            {{ op.request_body_schema_name | to_snake_case }}: crate::models::{{ op.request_body_schema_name }},
+        {% endif -%}
+
+        {# query / header parameter struct -#}
+        {% if has_params -%}
+            {% set param_struct_name -%}
+                {{ resource_type_name }}{{ op.name | to_upper_camel_case }}Options
+            {%- endset -%}
+            {% set has_required_params = op | has_required_query_or_header_params -%}
+            {%- if has_required_params -%}
+                options: {{ param_struct_name }},
+            {%- else -%}
+                options: Option<{{ param_struct_name }}>,
+            {%- endif -%}
+        {% endif -%}
+    ) -> Result<{% if op.response_is_binary %}bytes::Bytes{% elif op.response_is_text %}String{% elif op.response_body_schema_name is defined %}crate::models::{{ op.response_body_schema_name }}{% else %}(){% endif %}> {
+        {% if has_params -%}
+            {# unpack query / header parameter struct -#}
+            let {{ param_struct_name }} {
+                {% for p in op.query_params %}{{ p.name | to_rust_ident }},{% endfor %}
+                {% for p in op.header_params %}{{ p.name | to_rust_ident }},{% endfor %}
+            } = options
+            {%- if not has_required_params %}.unwrap_or_default(){% endif -%}
+            ;
+        {% endif -%}
+
+        {# make the request #}
+        crate::request::Request::new(http1::Method::{{ op.method | upper }}, "{{ op.path }}")
+
+        {% for p in op.path_params -%}
+            .with_path_param("{{ p }}", {{ p }})
+        {% endfor -%}
+
+        {% for p in op.query_params -%}
+            {# `explode` defaults to true for OpenAPI `style: form`, and may be missing
+               entirely when the codegen binary predates the `explode` IR field. -#}
+            {% set explode = p.explode | default(true) -%}
+            {% set is_exploded_list = (p.type.is_list() or p.type.is_set()) and explode -%}
+            {% if p.required and is_exploded_list -%}
+                .with_exploded_query_param
+            {%- elif p.required -%}
+                .with_query_param
+            {%- elif is_exploded_list -%}
+                .with_optional_exploded_query_param
+            {%- else -%}
+                .with_optional_query_param
+            {%- endif -%}
+            ("{{ p.name }}", {{ p.name | to_rust_ident }})
+        {% endfor -%}
+
+        {% for p in op.header_params -%}
+            .with_optional_header_param("{{ p.name }}", {{ p.name | to_rust_ident }})
+        {% endfor -%}
+
+        {% if op.request_body_schema_name is defined -%}
+            {% if op.request_body_is_form -%}
+            .with_form_body_param({{ op.request_body_schema_name | to_snake_case }})
+            {% else -%}
+            .with_body_param({{ op.request_body_schema_name | to_snake_case }})
+            {% endif -%}
+        {% endif -%}
+
+        {% if op.response_is_binary -%}
+            .execute_binary(self.cfg)
+            .await
+        {% elif op.response_is_text -%}
+            .execute_text(self.cfg)
+            .await
+        {% elif op.response_body_schema_name is undefined -%}
+            .returns_nothing()
+            .execute(self.cfg)
+            .await
+        {% else -%}
+            .execute(self.cfg)
+            .await
+        {% endif -%}
+    }
+    {% endfor %}
+}
