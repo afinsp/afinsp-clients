@@ -1,0 +1,27 @@
+name: Rust Security
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'rust/**/Cargo.toml'
+      - 'rust/**/Cargo.lock'
+      - 'rust/deny.toml'
+      - '.github/workflows/rust-security.yml'
+  pull_request:
+    paths:
+      - 'rust/**/Cargo.toml'
+      - 'rust/**/Cargo.lock'
+      - 'rust/deny.toml'
+      - '.github/workflows/rust-security.yml'
+
+jobs:
+  security_audit:
+    name: Security Audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: rust/Cargo.toml
