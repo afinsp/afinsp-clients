@@ -1,0 +1,22 @@
+# Javascript
+node_modules
+dist
+
+# PHP
+/vendor/
+composer.lock
+.phpunit.result.cache
+
+# IDE
+.vscode
+.idea
+
+# Rust
+target/
+
+# Java
+/java/build/
+.gradle/
+
+# Codegen script
+/.codegen-tmp/
